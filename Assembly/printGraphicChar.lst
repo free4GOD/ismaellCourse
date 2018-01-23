@@ -1,0 +1,266 @@
+GAS LISTING printGraphicChar.s 			page 1
+
+
+   1              	.code16
+   2              	.global _start
+   3              	.text
+   4              	
+   5              	# Direccion Fisica = Segmento * 16 + Offset
+   6              	# 0xA0000 = 0xA000 * 16 +
+   7              	VIDEO_ADDRESS_SEGMENT = 0xA000
+   8              	
+   9              	# Resoluciones a soportar, con cualquier cantidad de colores:
+  10              	# 320x200
+  11              	# 320x400
+  12              	# 640x480
+  13              	# 800x600
+  14              	# 1024x768
+  15              	# 1280x800
+  16              	# 1920x1080
+  17              	
+  18              	SCREEN_MODE		= 0x13
+  19              	SCREEN_WIDTH		= 320
+  20              	SCREEN_HEIGHT		= 200
+  21              	SCREEN_COLORDEPTH	= 8
+  22              	
+  23              	_start:
+  24              	# Enter graphical mode
+  25 0000 B81300   	  movw $SCREEN_MODE, %ax           # VGA MODE
+  26 0003 CD10     	  int $0x10                        # 320x200 256colors
+  27              	
+  28              	# Get Font bitmap with BIOS INT, save to "font" variable
+  29 0005 06       	  pushw %es
+  30 0006 B83011   	  mov $0x1130, %ax
+  31 0009 B703     	  mov $0x03, %bh                   # ROM 8x8 double dot font pointer
+  32 000b CD10     	  int $0x10
+  33 000d 8CC0     	  mov %es, %ax
+  34 000f A30000   	  mov %ax, (font)
+  35 0012 892E0000 	  mov %bp, (font+2)
+  36 0016 07       	  popw %es
+  37              	
+  38              	# Draw something
+  39              	  # Create a VideoRes struct
+  40 0017 680000   	  pushw $video_ctx
+  41 001a 684001   	  pushw $SCREEN_WIDTH
+  42 001d 68C800   	  pushw $SCREEN_HEIGHT
+  43 0020 6A08     	  pushw $SCREEN_COLORDEPTH
+  44 0022 E82900   	  call VideoResDefine
+  45              	  # Set position
+  46 0025 680000   	  pushw $video_ctx
+  47 0028 683878   	  pushw $((SCREEN_WIDTH * (SCREEN_HEIGHT - 8) + (SCREEN_WIDTH - (hello_end - hello - 1) * 8)) / 2)
+  48 002b E85400   	  call VideoResSetPos
+  49              	  # Set current color
+  50 002e C6060000 	  movb $10, (video_ctx+VIDEORES_COLOR)
+  50      0A
+  51 0033 680000   	  pushw $video_ctx
+  52 0036 6A0A     	  pushw $10
+  53 0038 E83700   	  call VideoResSetColor
+  54 003b 680000   	  pushw $video_ctx
+  55 003e 680000   	  pushw $hello # String
+  56 0041 E85900   	  call printstr
+GAS LISTING printGraphicChar.s 			page 2
+
+
+  57              	
+  58              	# Halt
+  59              	halt:
+  60 0044 31C0     	  xor %ax, %ax
+  61 0046 CD16     	  int $0x16
+  62 0048 B003     	  movb $3, %al
+  63 004a CD10     	  int $0x10
+  64 004c CD20     	  int $0x20
+  65              	
+  66              	
+  67              	#------------------------------------------------------------------------------
+  68              	# Video Abstractions
+  69              	#
+  70              	# VideoRes:
+  71              	VIDEORES_BASE	= 0x00 /* Base Video Address (16 bits) */
+  72              	VIDEORES_WIDTH	= 0x02 /*  Width (16 bits) */
+  73              	VIDEORES_HEIGHT	= 0x04 /* Height (16 bits) */
+  74              	VIDEORES_CWIDTH	= 0x06 /* Color width in bytes (16 bits) */
+  75              	VIDEORES_PTR	= 0x08 /* Current position (16 bits) */
+  76              	VIDEORES_COLOR	= 0x0A /* Current color (32 bits) */
+  77              	VIDEORES__LEN__	= 0x0E
+  78              	
+  79              	VideoResDefine: #(VideoRes *v, width, height, color_depth)
+  80 004e 55       	  push %bp
+  81 004f 89E5     	  movw %sp, %bp
+  82 0051 57       	  push %di
+  83 0052 8B7E0A   	  movw 10(%bp), %di
+  84              	  
+  85 0055 B800A0   	  movw $0xA000, %ax
+  86 0058 AB       	  stosw # VIDEORES_BASE(%di)
+  87 0059 8B4608   	  movw 8(%bp), %ax
+  88 005c AB       	  stosw # VIDEORES_WIDTH(%di)
+  89 005d 8B4606   	  movw 6(%bp), %ax
+  90 0060 AB       	  stosw # VIDEORES_HEIGHT(%di)
+  91 0061 8B4604   	  movw 4(%bp), %ax
+  92 0064 C1E003   	  shl $3, %ax
+  93 0067 AB       	  stosw # VIDEORES_CWIDTH(%di)
+  94 0068 31C0     	  xor %ax, %ax
+  95 006a AB       	  stosw # VIDEORES_PTR(%di)
+  96 006b AB       	  stosw # VIDEORES_COLOR(%di)
+  97 006c AB       	  stosw
+  98 006d 5F       	  pop %di
+  99 006e 5D       	  pop %bp
+ 100 006f C20800   	  retw $8
+ 101              	
+ 102              	VideoResSetColor: #(VideoRes *v, color)
+ 103 0072 55       	  push %bp
+ 104 0073 89E5     	  movw %sp, %bp
+ 105 0075 57       	  push %di
+ 106 0076 8B7E06   	  movw 6(%bp), %di
+ 107 0079 8B4604   	  movw 4(%bp), %ax
+ 108 007c AB       	  stosw # VIDEORES_COLOR(%di)
+ 109 007d 5F       	  pop %di
+ 110 007e 5D       	  pop %bp
+ 111 007f C20400   	  retw $4
+ 112              	
+ 113              	VideoResSetPos: #(VideoRes *v, x, y)
+GAS LISTING printGraphicChar.s 			page 3
+
+
+ 114 0082 55       	  push %bp
+ 115 0083 89E5     	  movw %sp, %bp
+ 116 0085 57       	  push %di
+ 117 0086 8B7E08   	  movw 8(%bp), %di
+ 118 0089 8B4604   	  movw 4(%bp), %ax
+ 119 008c F76502   	  mulw VIDEORES_WIDTH(%di)
+ 120 008f 014606   	  addw %ax, 6(%bp)
+ 121 0092 F76506   	  mulw VIDEORES_CWIDTH(%di)
+ 122 0095 894508   	  movw %ax, VIDEORES_PTR(%di)
+ 123 0098 5F       	  pop %di
+ 124 0099 5D       	  pop %bp
+ 125 009a C20600   	  retw $6
+ 126              	
+ 127              	#------------------------------------------------------------------------------
+ 128              	
+ 129              	# printstr(VideoRes *v, const char *str) # str = 20(%bp), v = 18(%bp)
+ 130              	printstr:
+ 131 009d 60       	  pushaw
+ 132 009e 89E5     	  mov %sp, %bp
+ 133              	
+ 134 00a0 06       	  push %es
+ 135 00a1 1E       	  push %ds
+ 136              	
+ 137              	  # %es = video segment
+ 138 00a2 B800A0   	  mov $VIDEO_ADDRESS_SEGMENT, %ax
+ 139 00a5 8EC0     	  mov %ax, %es
+ 140              	  # %ds = video font segment
+ 141 00a7 A10000   	  mov (font), %ax
+ 142 00aa 8ED8     	  mov %ax, %ds
+ 143              	
+ 144 00ac 8B7612   	  movw 18(%bp), %si	# String
+ 145 00af 8B6E14   	  movw 20(%bp), %bp	# VideoRes struct
+ 146 00b2 2E8B7E08 	  movw %cs:VIDEORES_PTR(%bp), %di    # Load current position in %di
+ 147 00b6 2E8B560A 	  movw %cs:VIDEORES_COLOR(%bp), %dx
+ 148              	
+ 149              	Lnextchar:
+ 150              	  # Load string char
+ 151 00ba 31C0     	  xor %ax, %ax
+ 152 00bc 2EAC     	  lodsb %cs:(%si), %al
+ 153 00be 84C0     	  test %al, %al
+ 154 00c0 7438     	  jz 4f
+ 155              	
+ 156              	  # Calculate char addr in the bitmap
+ 157 00c2 C1E003   	  shl $3, %ax
+ 158 00c5 2E030600 	  add %cs:(font+2), %ax
+ 158      00
+ 159 00ca 89C3     	  mov %ax, %bx
+ 160              	
+ 161              	# Print char
+ 162              	
+ 163 00cc B108     	  mov $8, %cl
+ 164              	Lnextline:
+ 165 00ce B508     	  mov $8, %ch
+ 166 00d0 8A07     	  movb (%bx), %al
+ 167 00d2 43       	  inc %bx
+ 168              	1:
+ 169 00d3 D0C0     	  rol $1, %al
+GAS LISTING printGraphicChar.s 			page 4
+
+
+ 170 00d5 A801     	  test $1, %al
+ 171 00d7 7403     	  jz 2f
+ 172              	  # FIXME for CWIDTH != 1
+ 173 00d9 268815   	  movb %dl, %es:(%di)
+ 174              	2:
+ 175 00dc 47       	  inc %di # FIXME for CWIDTH != 1
+ 176 00dd FECD     	  dec %ch
+ 177 00df 75F2     	  jnz 1b
+ 178 00e1 2E037E02 	  addw %cs:VIDEORES_WIDTH(%bp), %di
+ 179 00e5 83EF08   	  sub $8, %di
+ 180 00e8 FEC9     	  dec %cl
+ 181 00ea 75E2     	  jnz Lnextline
+ 182 00ec 83C708   	  add $8, %di
+ 183 00ef 2E8B4602 	  movw %cs:VIDEORES_WIDTH(%bp), %ax
+ 184 00f3 C1E003   	  shl $3, %ax
+ 185 00f6 29C7     	  sub %ax, %di
+ 186 00f8 EBC0     	  jmp Lnextchar
+ 187              	
+ 188              	4:
+ 189 00fa 1F       	  pop %ds
+ 190 00fb 07       	  pop %es
+ 191 00fc 61       	  popaw
+ 192 00fd C20400   	  retw $4
+ 193              	
+ 194              	## Nested loops with 4-bit resolution each, example:
+ 195              	#	movw $0x20, %cl
+ 196              	#1:
+ 197              	#	...
+ 198              	#	orw $0x03, %cl
+ 199              	#2:
+ 200              	#	...
+ 201              	#	dec %cl
+ 202              	#	test $0xf, %cl
+ 203              	#	jnz 2b
+ 204              	#	...
+ 205              	#	sub $0x10, %cl
+ 206              	#	and $0xf0, %cl
+ 207              	#	jnz 1b
+ 208              	
+ 209              	
+ 210              	#-----------------------------------------
+ 211              	# Variables
+ 212 0100 00000000 	font:  .long 0
+ 213 0104 41677561 	hello: .asciz "Aguante el hacking, vieja!"
+ 213      6E746520 
+ 213      656C2068 
+ 213      61636B69 
+ 213      6E672C20 
+ 214              	hello_end:
+ 215 011f 00000000 	video_ctx: .fill VIDEORES__LEN__, 1, 0
+ 215      00000000 
+ 215      00000000 
+ 215      0000
+GAS LISTING printGraphicChar.s 			page 5
+
+
+DEFINED SYMBOLS
+  printGraphicChar.s:23     .text:0000000000000000 _start
+  printGraphicChar.s:7      *ABS*:000000000000a000 VIDEO_ADDRESS_SEGMENT
+  printGraphicChar.s:18     *ABS*:0000000000000013 SCREEN_MODE
+  printGraphicChar.s:19     *ABS*:0000000000000140 SCREEN_WIDTH
+  printGraphicChar.s:20     *ABS*:00000000000000c8 SCREEN_HEIGHT
+  printGraphicChar.s:21     *ABS*:0000000000000008 SCREEN_COLORDEPTH
+  printGraphicChar.s:212    .text:0000000000000100 font
+  printGraphicChar.s:215    .text:000000000000011f video_ctx
+  printGraphicChar.s:79     .text:000000000000004e VideoResDefine
+  printGraphicChar.s:214    .text:000000000000011f hello_end
+  printGraphicChar.s:213    .text:0000000000000104 hello
+  printGraphicChar.s:113    .text:0000000000000082 VideoResSetPos
+                            *ABS*:000000000000000a VIDEORES_COLOR
+  printGraphicChar.s:102    .text:0000000000000072 VideoResSetColor
+  printGraphicChar.s:130    .text:000000000000009d printstr
+  printGraphicChar.s:59     .text:0000000000000044 halt
+  printGraphicChar.s:71     *ABS*:0000000000000000 VIDEORES_BASE
+  printGraphicChar.s:72     *ABS*:0000000000000002 VIDEORES_WIDTH
+  printGraphicChar.s:73     *ABS*:0000000000000004 VIDEORES_HEIGHT
+  printGraphicChar.s:74     *ABS*:0000000000000006 VIDEORES_CWIDTH
+  printGraphicChar.s:75     *ABS*:0000000000000008 VIDEORES_PTR
+  printGraphicChar.s:77     *ABS*:000000000000000e VIDEORES__LEN__
+  printGraphicChar.s:149    .text:00000000000000ba Lnextchar
+  printGraphicChar.s:164    .text:00000000000000ce Lnextline
+
+NO UNDEFINED SYMBOLS

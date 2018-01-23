@@ -1,0 +1,16 @@
+targets = prog
+
+.PHONY: all
+all: $(targets)
+
+prog-objs = prog.o
+prog: $(prog-objs)
+objs += $(prog-objs)
+
+
+$(targets):
+	$(CC) $(LDFLAGS) -o $@ $($@-objs)
+
+.PHONY: clean
+clean:
+	rm -f $(targets) $(objs)
